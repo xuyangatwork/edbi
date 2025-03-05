@@ -1,0 +1,8 @@
+[theme]
+base="light"
+
+[server]
+maxUploadSize = 10
+
+[browser]
+gatherUsageStats = false
