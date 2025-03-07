@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from streamlit_folium import folium_static
 import streamlit_antd_components as sac
 import folium
+import openai
 from datetime import datetime, timedelta
 
 # Configure the page
@@ -64,20 +65,6 @@ def main():
             sac.MenuItem('Chatbot'),
             sac.MenuItem('Feedback')
             ], index=0, format_func='title', open_all=True)
-
-        # User information in sidebar footer
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("""
-        <div style='display: flex; align-items: center;'>
-            <div style='width: 32px; height: 32px; border-radius: 50%; background-color: rgba(59, 130, 246, 0.1); 
-                display: flex; align-items: center; justify-content: center; margin-right: 10px;
-                color: rgb(59, 130, 246); font-weight: 500;'>SG</div>
-            <div>
-                <p style='font-weight: 500; margin: 0;'>Ministry of Education</p>
-                <p style='font-size: 12px; color: #6b7280; margin: 0;'>EduPlan Admin Portal</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
 
 
     # Landing Page
@@ -271,7 +258,12 @@ def main():
     # Chatbot Page
     elif page == "Chatbot":
         st.title("GenAI Analytics Assistant")
-        st.markdown("Ask questions about adoption rates, trends, or request custom reports")
+        
+        # API key input - for demonstration purposes
+        with st.sidebar.expander("OpenAI API Settings"):
+            api_key = st.text_input("Enter your OpenAI API Key", type="password")
+            model = st.selectbox("Select model", ["gpt-4o-mini", "gpt-4o"], index=0)
+            st.caption("Note: Your API key is not stored and will be cleared when you refresh the page.")
         
         # Initialize chat history
         if "messages" not in st.session_state:
@@ -296,29 +288,39 @@ def main():
             
             # Generate and display assistant response
             with st.chat_message("assistant"):
-                response_placeholder = st.empty()
+                if not api_key:
+                    bot_response = "Please enter your OpenAI API key in the sidebar to enable AI-powered responses."
+                else:
+                    with st.spinner("Generating response..."):
+                        bot_response = get_openai_response(prompt, api_key, model)
                 
-                # Simulate loading
-                with st.spinner("Generating response..."):
-                    # Simple pattern matching for demo purposes
-                    if "north east" in prompt.lower() or "report" in prompt.lower():
-                        bot_response = "Here's the analysis for the North East zone:\n\n- Overall adoption rate: 42%\n- 37 schools, 4,231 teachers\n- Highest adoption: Fu Hua Secondary (67%)\n- Lowest adoption: Edgefield Secondary (18%)\n- Key insight: Schools with dedicated IT coordinators show 30% higher adoption rates\n\nWould you like me to prepare a detailed PDF report for sharing?"
-                    elif "top performing" in prompt.lower() or "highest" in prompt.lower():
-                        bot_response = "Top Performing Schools in Cluster N1:\n\n1. Greenview Secondary - 71% adoption rate\n2. Fu Hua Secondary - 67% adoption rate\n3. East View Secondary - 63% adoption rate\n\nThese schools have implemented weekly professional learning communities focused on technology integration, resulting in consistently high adoption rates."
-                    elif "trend" in prompt.lower() or "pattern" in prompt.lower():
-                        bot_response = "Analyzing adoption trends across Singapore:\n\n- Overall adoption has increased 15% in the last quarter\n- Daily active usage peaks on Wednesdays (mid-week)\n- Schools that conducted teacher training sessions show 40% higher sustained usage\n- There's a strong correlation between principal's technology advocacy and school-wide adoption\n\nWould you like to see a visualization of these trends?"
-                    else:
-                        bot_response = "I've analyzed your request and can provide the following insights:\n\n- Cluster N1 has shown a 12% improvement in adoption over the last 3 months\n- Usage patterns indicate highest engagement during morning periods (8-10am)\n- Schools with peer mentoring programs demonstrate 27% higher adoption rates\n\nCan I help you with a specific analysis or would you like recommendations for improving adoption rates?"
-                
-                response_placeholder.write(bot_response)
+                st.write(bot_response)
             
             # Add assistant response to chat history
             st.session_state.messages.append({"role": "assistant", "content": bot_response})
+
 
     # Feedback Dashboard
     elif page == "Feedback":
         st.title("Feedback Dashboard")
         st.markdown("xxxx")
+
+
+    # User information in sidebar footer
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("""
+        <div style='display: flex; align-items: center;'>
+            <div style='width: 32px; height: 32px; border-radius: 50%; background-color: rgba(59, 130, 246, 0.1); 
+                display: flex; align-items: center; justify-content: center; margin-right: 10px;
+                color: rgb(59, 130, 246); font-weight: 500;'>SG</div>
+            <div>
+                <p style='font-weight: 500; margin: 0;'>Ministry of Education</p>
+                <p style='font-size: 12px; color: #6b7280; margin: 0;'>EduPlan Admin Portal</p>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+
 
 # Function to create date filter UI
 def create_date_filter():
@@ -346,6 +348,76 @@ def create_date_filter():
     end_datetime = datetime.combine(end_date, datetime.max.time())
     
     return start_datetime, end_datetime
+
+# Function to get system prompt
+def load_prompt(file_path):
+    with open(file_path, "r", encoding="utf-8") as file:
+        return file.read()
+
+# Function to get OpenAI response
+def get_openai_response(prompt, api_key, model):
+          
+    # Prepare prompt with context
+    context = """
+        You are an AI assistant for a Singapore Ministry of Education (MOE) analytics dashboard. 
+        Your purpose is to analyse school adoption rates across Singapore and provide insights.
+        The data shows adoption rates for various schools grouped by clusters and zones.
+        Top performing schools in Cluster N1 include Greenview Secondary (71%), Fu Hua Secondary (67%), 
+        and East View Secondary (63%). The overall adoption rate for the North East zone is about 42%.
+        Schools with dedicated IT coordinators show 30% higher adoption rates.
+        Respond to questions about adoption rates, trends, or generate reports based on this information.
+        Keep your responses concise, factual, and focused on educational technology adoption.
+        """
+
+    now = datetime.now()
+    date_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    date_str = ""
+
+    # Load and display
+    context = date_str + load_prompt("prompt.txt")
+           
+    try:
+        client = openai.OpenAI(api_key=api_key)
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[
+                #{"role": "system", "content": context},
+                #{"role": "user", "content": prompt}
+                {"role": "system", "content": ""},
+                {"role": "user", "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "https://isomer-user-content.by.gov.sg/34/538442d6-fbd6-4323-9f99-7001a01ba5b6/Support%20for%20Singaporeans.jpg",
+                            "detail": "low",
+                        },
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "https://isomer-user-content.by.gov.sg/34/622beb19-ccb1-4ab1-a340-1413b02c7881/B2025%20-%20Support%20for%20You.jpg",
+                            "detail": "low",
+                        },
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "https://isomer-user-content.by.gov.sg/34/d53a965d-23b9-420d-b6cd-9c07b62063fe/B2025%20-%20Support%20for%20Families%20and%20Seniors.jpg",
+                            "detail": "low",
+                        },
+                    },
+                    {"type": "text", "text": prompt},
+                ]}
+            ],
+            temperature=0.7,
+            max_tokens=10000
+        )
+        print(completion.usage)
+        st.write(completion.usage)
+        return completion.choices[0].message.content
+    except Exception as e:
+        return f"Error getting response: {str(e)}"
+
 
 if __name__ == "__main__":
 	main()
