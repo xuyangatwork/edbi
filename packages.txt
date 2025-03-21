@@ -1,0 +1,7 @@
+streamlit==1.37.0
+pandas==2.0.1
+numpy==1.24.3
+plotly==5.14.1
+folium==0.14.0
+streamlit-folium==0.11.1
+streamlit_antd_components==0.3.2
