@@ -49,6 +49,10 @@ def load_sample_data():
 
 schools_data, school_usage_data = load_sample_data()
 
+def show_analysis():
+    st.title('Analysis Page')
+    st.write('This is the analysis section of the application.')
+
 def main():
 
     # Create sidebar
@@ -140,6 +144,7 @@ def main():
 
     # Analysis Page
     elif page == "Analysis":
+        show_analysis()
         st.title("Detailed Analysis")
         st.markdown("In-depth analytics on school adoption rates, trends, and performance metrics")
         
