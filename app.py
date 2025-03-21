@@ -8,6 +8,7 @@ from streamlit_folium import folium_static
 import streamlit_antd_components as sac
 import folium
 import openai
+from modules.analysis import show_analysis
 from datetime import datetime, timedelta
 
 # Configure the page
@@ -48,10 +49,6 @@ def load_sample_data():
     return schools_data, school_usage_data
 
 schools_data, school_usage_data = load_sample_data()
-
-def show_analysis():
-    st.title('Analysis Page')
-    st.write('This is the analysis section of the application.')
 
 def main():
 

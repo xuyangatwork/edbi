@@ -22,7 +22,7 @@ def show_analysis():
     st.success("Connected to Snowflake!")
 
     # Example query
-    query = "SELECT * FROM your_table_name LIMIT 10"
+    query = "SELECT * FROM ANALYSIS_SESSION LIMIT 10"
     cur = conn.cursor()
     cur.execute(query)
     rows = cur.fetchall()
