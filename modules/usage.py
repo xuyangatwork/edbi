@@ -1,213 +1,207 @@
 import streamlit as st
-import pandas as pd
 import plotly.express as px
 from streamlit_folium import folium_static
 import folium
+import ssl
+from geopy.geocoders import Nominatim
+from geopy.geocoders import OpenCage
 import openai
-from datetime import datetime, timedelta
+from datetime import datetime
+from modules.analysis import getData_Search, getData_Map, getData_Bot
 
-# Sample data for demonstration
-@st.cache_data
-def load_sample_data():
-    # School data
-    schools_data = pd.DataFrame({
-        'id': range(1, 10),
-        'name': [
-            'Fu Hua Secondary', 'Greenview Secondary', 'East View Secondary',
-            'Compassvale Secondary', 'Punggol Secondary', 'Sengkang Secondary',
-            'Rivervale Secondary', 'Edgefield Secondary', 'North Vista Secondary'
-        ],
-        'x': [38, 42, 48, 30, 36, 33, 28, 25, 22],  # Map coordinates
-        'y': [40, 45, 47, 48, 53, 47, 42, 45, 48],  # Map coordinates
-        'type': ['high', 'high', 'high', 'medium', 'medium', 'medium', 'low', 'low', 'low'],
-        'rate': [67, 71, 63, 42, 38, 45, 24, 18, 21],
-        'teachers': [62, 58, 75, 68, 82, 59, 71, 66, 77]
-    })
+
+zone_data = {"East": "1", "West": "2", "North": "3", "South": "4"}
+
+# Initialize geocoder
+geolocator = Nominatim(user_agent="edbi_moe_sls_app")
+
+def geo_test(schoolName):
+    # Disable SSL verification for testing purposes (not recommended for production)
+    ssl._create_default_https_context = ssl._create_unverified_context
     
-    # Bar chart data
-    school_usage_data = pd.DataFrame({
-        'name': [f'School {chr(65+i)}' for i in range(13)],
-        'value': [328449, 223844, 206966, 201413, 114880, 107532, 91705, 78479, 46624, 27119, 16476, 12486, 3024],
-        'fill': ['#5A8EED'] * 13
-    })
+    geolocator = OpenCage(api_key=st.secrets["OPENCAGE_API_KEY"])
+    location = geolocator.geocode(f"{schoolName}, Singapore", timeout=10)  # Postal code for Singapore
+    #st.write(location)
     
-    return schools_data, school_usage_data
-
-schools_data, school_usage_data = load_sample_data()
-
+    return location.latitude, location.longitude
 
 def show_mapview():
-# Filters
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            zone = st.selectbox("Zone", ["North East", "North West", "South East", "South West", "Central"])
-        with col2:
-            cluster = st.selectbox("Cluster", ["Cluster N1", "Cluster N2", "Cluster N3", "Cluster N4"])
-        with col3:
-            school_type = st.selectbox("School Type", ["Primary", "Secondary", "Junior College", "All"])
-        
-        start_date, end_date = create_date_filter()
+    
+    zone_name = st.selectbox("Zone", list(zone_data.keys()))
 
-        # Create the map
-        st.markdown("#### Singapore Schools Adoption Map")
-        
-        m = folium.Map(location=[1.3521, 103.8198], zoom_start=12, tiles="CartoDB positron")
-        
-        # Add markers for schools
-        for _, school in schools_data.iterrows():
-            # Convert percentage coordinates to actual lat/lng (simplified for demo)
-            # This is a rough approximation - in a real app, you'd use actual GPS coordinates
-            lat = 1.3521 + (school['y'] - 45) * 0.003
-            lng = 103.8198 + (school['x'] - 35) * 0.003
+    start_date, end_date = create_date_filter()
+    
+    df_map = getData_Map(start_date, end_date, zone_data[zone_name])
+    #st.dataframe(df_map)
+
+    mean_total_usage = df_map["TOTAL_USAGE"].mean()
+
+    if df_map.empty:
+        st.warning("No data available to display on the map.")
+        return
+
+    # Create the map
+    m = folium.Map(location=[1.3521, 103.8198], zoom_start=12, tiles="CartoDB positron")  # Singapore's coordinates
+
+    # Add markers for each school
+    for _, row in df_map.iterrows():
+        # Geocode postal code to latitude and longitude
+        latitude, longitude = geo_test(row['SCHOOLNAME'])
+
+        if latitude and longitude:  # Proceed if valid coordinates found
+            popup_text = f"""
+            <b>{row['SCHOOLNAME']}</b><br>
+            📊 Total Usage: {row['TOTAL_USAGE']}<br>
+            👩‍🏫 Unique Users: {row['UNIQUE_USERS']}
+            """
             
-            # Set marker color based on adoption type
-            if school['type'] == 'high':
+            # Set marker color based on mean_total_usage
+            if row['TOTAL_USAGE'] > 0.75 * mean_total_usage:
                 color = '#22c55e'  # green
-                radius = 8
-            elif school['type'] == 'medium':
-                color = '#f59e0b'  # amber
                 radius = 7
+            elif row['TOTAL_USAGE'] > 0.40 * mean_total_usage:
+                color = '#f5b03b'  # amber
+                radius = 5
             else:
-                color = '#ef4444'  # red
-                radius = 6
+                color = '#f05454'  # red
+                radius = 3
             
             # Add marker
             folium.CircleMarker(
-                location=[lat, lng],
+                location=[latitude, longitude],
                 radius=radius,
                 color=color,
                 fill=True,
                 fill_color=color,
-                fill_opacity=0.8,
-                tooltip=f"{school['name']}: {school['rate']}% adoption rate, {school['teachers']} teachers"
+                fill_opacity=0.9,
+                tooltip=popup_text
             ).add_to(m)
+
+    # Display the map in Streamlit
+    folium_static(m, width=1000, height=400)
         
-        # Add legend
-        legend_html = '''
-        <div style="position: fixed; bottom: 50px; right: 50px; z-index: 1000; background-color: white; 
-                    padding: 10px; border: 1px solid #e5e7eb; border-radius: 5px;">
-            <p><i class="fa fa-circle" style="color:#22c55e"></i> High Adoption (>60%)</p>
-            <p><i class="fa fa-circle" style="color:#f59e0b"></i> Medium Adoption (30-60%)</p>
-            <p><i class="fa fa-circle" style="color:#ef4444"></i> Low Adoption (<30%)</p>
-        </div>
-        '''
-        m.get_root().html.add_child(folium.Element(legend_html))
-        
-        # Display the map
-        folium_static(m, width=1000, height=500)
-        
-        st.caption("Map data © OpenStreetMap contributors")
-    
+    st.caption("Map data © OpenStreetMap contributors")
 
 def show_detailedAnalysis():
     # Filters
         col1, col2, col3 = st.columns(3)
         with col1:
-            zone = st.selectbox("Zone", ["North East", "North West", "South East", "South West", "Central"])
+            zone_name = st.selectbox("Zone", list(zone_data.keys()))
         with col2:
-            cluster = st.selectbox("Cluster", ["Cluster N1", "Cluster N2", "Cluster N3", "Cluster N4"])
+            cluster = st.selectbox("Cluster", st.session_state.df_clusters)
         with col3:
-            school_type = st.selectbox("School Type", ["Primary", "Secondary", "Junior College", "All"])
+            type = st.selectbox("School Type", st.session_state.df_types)
         
         start_date, end_date = create_date_filter()
         
+        if st.button("Search"):
+            df_search = getData_Search(start_date, end_date, zone_data[zone_name], cluster, type)
+            #st.dataframe(df_search)
 
-        # Cluster info
-        st.markdown("""
-        <div style='text-align: center; margin-bottom: 2rem;'>
-            <h1 style='font-size: 1.875rem; font-weight: 500;'>Cluster N1</h1>
-            <p style='font-size: 1.875rem; font-weight: 500; color: #3b82f6;'>35% Avg Adoption Rate</p>
-            <p style='color: #6b7280;'>14 Schools, 1,766 Teachers</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Top and bottom performers
-        col1, col2 = st.columns(2)
-        
-        # Top
-        with col1:
-            st.markdown("#### Highest Adoption Rate")
-            
-            top_schools = [
-                {"name": "Fu Hua Secondary", "rate": 67, "count": "328,449", "is_highest": True},
-                {"name": "Greenview Secondary", "rate": 71, "count": "223,844", "is_highest": False},
-                {"name": "East View Secondary", "rate": 63, "count": "206,966", "is_highest": False}
-            ]
-            
-            for school in top_schools:
-                color = "#22c55e" if school["is_highest"] else "#60a5fa"
+            if not df_search.empty:
+                # get Usage Data
+                df_usage_sorted = df_search.sort_values(by='TOTAL_USAGE', ascending=False)
+                # Get top 5 rows
+                top_5_usage = df_usage_sorted.head(3)
+                # Get bottom 5 rows
+                bottom_5_usage = df_usage_sorted.tail(3)
+
+                # get Adoption Data
+                df_adoption_sorted = df_search.sort_values(by='UNIQUE_USERS', ascending=False)
+                # Get top 5 rows
+                top_5_adoption = df_adoption_sorted.head(3)
+                # Get bottom 5 rows
+                bottom_5_adoption = df_adoption_sorted.tail(3)
+
+                #st.dataframe(top_5_adoption)
+                #st.dataframe(bottom_5_adoption)
+
+                avg_usage_per_tchr = round(df_search['TOTAL_USAGE'].sum()/df_search['UNIQUE_USERS'].sum(),1)
+
+                # Cluster info
                 st.markdown(f"""
-                <div style='display: flex; align-items: center; justify-content: space-between; 
-                            padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #e5e7eb; 
-                            margin-bottom: 0.75rem; transition: background-color 0.2s;
-                            hover:background-color: rgba(243, 244, 246, 0.5);'>
-                    <div style='display: flex; align-items: center;'>
-                        <div style='width: 2.5rem; height: 2.5rem; display: flex; align-items: center; 
-                                justify-content: center; border-radius: 9999px; color: white; 
-                                font-weight: 500; background-color: {color};'>
-                            {school["rate"]}%
+                    <div style='display: flex; flex-direction: column; align-items: center; justify-content: center; 
+                                padding: 0.75rem; border-radius: 1rem; border: 2px solid #e5e7eb; 
+                                margin-bottom: 1rem; transition: background-color 0.2s;
+                                hover:background-color: #3b82f6;'>
+                        <div style='text-align: center; margin: 1rem'>
+                            <p style='font-size: 2.175rem; font-weight: bold;'>Cluster: {zone_name}{cluster} </p>
+                            <p style='font-size: 1.875rem; color: #3b82f6;'>Average Product Usage per Teacher: {avg_usage_per_tchr}</p>
+                            <p style='font-size: 0.975rem; color: #666666;'> from {datetime.date(start_date)} to {datetime.date(end_date)} across {df_search['SCHOOLNAME'].nunique()} Schools, {df_search['UNIQUE_USERS'].sum()} Teachers </p>
                         </div>
-                        <span style='margin-left: 0.75rem; font-weight: 500;'>{school["name"]}</span>
                     </div>
-                    <span style='color: #6b7280; font-size: 0.875rem;'>{school["count"]}</span>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        # Bottom
-        with col2:
-            st.markdown("#### Lowest Adoption Rate")
-            
-            bottom_schools = [
-                {"name": "Rivervale Secondary", "rate": 24, "count": "27,119", "is_lowest": True},
-                {"name": "Edgefield Secondary", "rate": 18, "count": "16,476", "is_lowest": False},
-                {"name": "North Vista Secondary", "rate": 21, "count": "3,024", "is_lowest": False}
-            ]
-            
-            for school in bottom_schools:
-                color = "#ef4444" if school["is_lowest"] else "#f87171"
-                st.markdown(f"""
-                <div style='display: flex; align-items: center; justify-content: space-between; 
-                            padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #e5e7eb; 
-                            margin-bottom: 0.75rem; transition: background-color 0.2s;
-                            hover:background-color: rgba(243, 244, 246, 0.5);'>
-                    <div style='display: flex; align-items: center;'>
-                        <div style='width: 2.5rem; height: 2.5rem; display: flex; align-items: center; 
-                                justify-content: center; border-radius: 9999px; color: white; 
-                                font-weight: 500; background-color: {color};'>
-                            {school["rate"]}%
-                        </div>
-                        <span style='margin-left: 0.75rem; font-weight: 500;'>{school["name"]}</span>
-                    </div>
-                    <span style='color: #6b7280; font-size: 0.875rem;'>{school["count"]}</span>
-                </div>
                 """, unsafe_allow_html=True)
                 
-        # Bar chart
-        st.markdown("#### Adoption Rate by Schools")
-        
-        fig = px.bar(
-            school_usage_data,
-            x='name',
-            y='value',
-            color_discrete_sequence=['#5A8EED'],
-            labels={'name': 'School', 'value': 'Usage'},
-            height=500
-        )
-        
-        fig.update_layout(
-            xaxis_tickangle=-45,
-            margin=dict(l=20, r=20, t=40, b=70),
-            plot_bgcolor='rgba(0,0,0,0)',
-            xaxis=dict(
-                gridcolor='rgba(0,0,0,0.05)'
-            ),
-            yaxis=dict(
-                gridcolor='rgba(0,0,0,0.05)'
-            )
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        st.caption("adoption rate by schools")
+                # Top and bottom performers
+                col1, col2 = st.columns(2)
+                
+                # Top
+                with col1:
+                    st.markdown("#### Highest Usage Rate")
+                    
+                    for index, school in top_5_usage.iterrows():
+                        #st.dataframe(school)
+                        color = "#22c55e" #if school["is_highest"] else "#60a5fa"
+                        st.markdown(f"""
+                        <div style='display: flex; align-items: center; justify-content: space-between; 
+                                    padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #e5e7eb; 
+                                    margin-bottom: 1rem; transition: background-color 0.2s;
+                                    hover:background-color: rgba(243, 244, 246, 0.5);'>
+                            <div style='display: flex; align-items: center;'>
+                                <div style='width: 2rem; height: 2rem; display: flex; align-items: center; 
+                                        justify-content: center; border-radius: 9999px; color: white; 
+                                        font-weight: 500; background-color: {color};'>
+                                    {index+1}
+                                </div>
+                                <span style='margin-left: 0.75rem; font-weight: 500;'>{school["SCHOOLNAME"]}</span>
+                            </div>
+                            <span style='color: {color}; font-size: 2.5 rem; font-weight: 300;'>{school["TOTAL_USAGE"]}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
+                # Bottom
+                with col2:
+                    st.markdown("#### Lowest Usage Rate")
+                    
+                    for index, school in bottom_5_usage.iterrows():
+                        color = "#f05454" #if school["is_lowest"] else "#f87171"
+                        st.markdown(f"""
+                        <div style='display: flex; align-items: center; justify-content: space-between; 
+                                    padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #e5e7eb; 
+                                    margin-bottom: 1rem; transition: background-color 0.2s;
+                                    hover:background-color: rgba(243, 244, 246, 0.5);'>
+                            <div style='display: flex; align-items: center;'>
+                                <div style='width: 2rem; height: 2rem; display: flex; align-items: center; 
+                                        justify-content: center; border-radius: 9999px; color: white; 
+                                        font-weight: 500; background-color: {color};'>
+                                    {index+1}
+                                </div>
+                                <span style='margin-left: 0.75rem; font-weight: 500;'>{school["SCHOOLNAME"]}</span>
+                            </div>
+                            <span style='color: {color}; font-size: 2.5 rem; font-weight: 300;'>{school["TOTAL_USAGE"]}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                # Bar chart
+                st.markdown("")
+                st.markdown("#### Adoption Rate by Schools")
+                
+                fig = px.bar(
+                    df_adoption_sorted,
+                    x='SCHOOLNAME',
+                    y='UNIQUE_USERS',
+                    color_discrete_sequence=['#5A8EED'],
+                    labels={'SCHOOLNAME': '', 'UNIQUE_USERS': 'Total Users'},
+                    text='UNIQUE_USERS',
+                    height=500
+                )
+                # Update trace to show the text outside the bars
+                fig.update_traces(texttemplate='%{text}', textposition='outside')
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
+            else:
+                st.error("No data found, please re-select the filter.")
 
 
 def show_chatbot():
@@ -224,6 +218,13 @@ def show_chatbot():
                 "content": "Hello! I'm your analytics assistant. How can I help you today? You can ask me questions like 'Generate a report for North East zone's adoption trends' or 'What are the top performing schools in Cluster N1?'"
             }]
         
+        # Get Data
+        df_bot = getData_Bot()
+
+        # Convert DataFrame to JSON
+        df_bot_json = df_bot.to_json(orient="records")
+
+
         # Display chat messages
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
@@ -244,7 +245,7 @@ def show_chatbot():
                     bot_response = "Please enter your OpenAI API key in the sidebar to enable AI-powered responses."
                 else:
                     with st.spinner("Generating response..."):
-                        bot_response = get_openai_response(prompt, api_key, model)
+                        bot_response = get_openai_response(prompt, api_key, model, df_bot_json)
                 
                 st.write(bot_response)
             
@@ -255,23 +256,26 @@ def show_chatbot():
 
 # Function to create date filter UI
 def create_date_filter():
-    today = datetime.now()
+    #today = datetime.now()
     col1, col2 = st.columns(2)
+    
+    min_date = st.session_state.min_date
+    max_date = st.session_state.max_date
     
     with col1:
         start_date = st.date_input(
             "From Date",
-            today - timedelta(days=30),
-            min_value=today - timedelta(days=90),
-            max_value=today
+            min_date,
+            min_value=min_date,
+            max_value=max_date
         )
     
     with col2:
         end_date = st.date_input(
             "To Date",
-            today,
-            min_value=today - timedelta(days=90),
-            max_value=today
+            max_date,
+            min_value=min_date,
+            max_value=max_date
         )
     
     # Convert to datetime
@@ -286,65 +290,28 @@ def load_prompt(file_path):
         return file.read()
 
 # Function to get OpenAI response
-def get_openai_response(prompt, api_key, model):
+def get_openai_response(prompt, api_key, model, df_bot_json):
           
     # Prepare prompt with context
-    context = """
+    context = f"""
         You are an AI assistant for a Singapore Ministry of Education (MOE) analytics dashboard. 
-        Your purpose is to analyse school adoption rates across Singapore and provide insights.
-        The data shows adoption rates for various schools grouped by clusters and zones.
-        Top performing schools in Cluster N1 include Greenview Secondary (71%), Fu Hua Secondary (67%), 
-        and East View Secondary (63%). The overall adoption rate for the North East zone is about 42%.
-        Schools with dedicated IT coordinators show 30% higher adoption rates.
-        Respond to questions about adoption rates, trends, or generate reports based on this information.
-        Keep your responses concise, factual, and focused on educational technology adoption.
+        Your purpose is to analyse school usage and adoption rates across Singapore and provide insights based on the data '{df_bot_json}'.
+        Please note "East Zone": 1, "West Zone": 2, "North Zone": 3, "South Zone": 4
         """
 
-    now = datetime.now()
-    date_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    date_str = ""
-
-    # Load and display
-    context = date_str + load_prompt("prompt.txt")
-           
     try:
         client = openai.OpenAI(api_key=api_key)
         completion = client.chat.completions.create(
             model=model,
             messages=[
-                #{"role": "system", "content": context},
-                #{"role": "user", "content": prompt}
-                {"role": "system", "content": ""},
-                {"role": "user", "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": "https://isomer-user-content.by.gov.sg/34/538442d6-fbd6-4323-9f99-7001a01ba5b6/Support%20for%20Singaporeans.jpg",
-                            "detail": "low",
-                        },
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": "https://isomer-user-content.by.gov.sg/34/622beb19-ccb1-4ab1-a340-1413b02c7881/B2025%20-%20Support%20for%20You.jpg",
-                            "detail": "low",
-                        },
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": "https://isomer-user-content.by.gov.sg/34/d53a965d-23b9-420d-b6cd-9c07b62063fe/B2025%20-%20Support%20for%20Families%20and%20Seniors.jpg",
-                            "detail": "low",
-                        },
-                    },
-                    {"type": "text", "text": prompt},
-                ]}
+                {"role": "system", "content": context},
+                {"role": "user", "content": prompt}
             ],
             temperature=0.7,
             max_tokens=10000
         )
-        print(completion.usage)
-        st.write(completion.usage)
+        #st.write(completion.usage)
         return completion.choices[0].message.content
     except Exception as e:
         return f"Error getting response: {str(e)}"
+

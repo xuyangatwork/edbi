@@ -1,7 +1,7 @@
 
 import streamlit as st
 import streamlit_antd_components as sac
-from modules.analysis import getData
+from modules.analysis import getData, get_global_filter
 from modules.usage import show_mapview, show_detailedAnalysis, show_chatbot
 from modules.feedback import show_feedbackAnalysis
 
@@ -9,6 +9,22 @@ from modules.feedback import show_feedbackAnalysis
 #page = st.sidebar.radio("Navigation", ["Map View", "Analysis", "Chatbot", "Feedback"])
 
 def main():
+
+    # Store each filer DataFrame to session
+    if 'df_schools' not in st.session_state:
+        st.session_state.df_schools = ""
+    if 'df_types' not in st.session_state:
+        st.session_state.df_types = ""
+    if 'df_zones' not in st.session_state:
+        st.session_state.df_zones = ""
+    if 'df_clusters' not in st.session_state:
+        st.session_state.df_clusters = ""
+    if 'df_dates' not in st.session_state:
+        st.session_state.df_dates = ""
+    if 'min_date' not in st.session_state:
+        st.session_state.min_date = ""
+    if 'max_date' not in st.session_state:
+        st.session_state.max_date = ""
 
     # Create sidebar
     with st.sidebar: #options for sidebar
@@ -23,9 +39,15 @@ def main():
             sac.MenuItem('Analysis'),
             sac.MenuItem('Chatbot'),
             sac.MenuItem('Feedback'),
-            sac.MenuItem('SnowFlake Connection Test')
+            #sac.MenuItem('SnowFlake Connection Test')
             ], index=0, format_func='title', open_all=True)
 
+
+    # Establish Snowflake connection
+    #conn = create_connection()
+
+    # Call the cached function once when the app starts
+    get_global_filter()
 
     # Landing Page
     if page == "Landing":
@@ -79,6 +101,8 @@ def main():
             </div>
         </div>
     """, unsafe_allow_html=True)
+
+
 
 
 if __name__ == "__main__":
