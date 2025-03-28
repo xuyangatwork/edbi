@@ -258,14 +258,28 @@ def show_chatbot():
 def create_date_filter():
     #today = datetime.now()
     col1, col2 = st.columns(2)
-    
-    min_date = st.session_state.min_date
-    max_date = st.session_state.max_date
+    min_date = st.session_state.get('min_date')
+    max_date = st.session_state.get('max_date')
+
+        # Ensure min_date and max_date are datetime.date objects
+    if isinstance(min_date, str):
+        min_date = datetime.strptime(min_date, "%Y-%m-%d").date()
+    elif isinstance(min_date, datetime):
+        min_date = min_date.date()
+
+    if isinstance(max_date, str):
+        max_date = datetime.strptime(max_date, "%Y-%m-%d").date()
+    elif isinstance(max_date, datetime):
+        max_date = max_date.date()
+
+    # Set default values within the valid range
+    default_start_date = min_date
+    default_end_date = max_date
     
     with col1:
         start_date = st.date_input(
             "From Date",
-            min_date,
+            value=default_start_date,
             min_value=min_date,
             max_value=max_date
         )
@@ -273,7 +287,7 @@ def create_date_filter():
     with col2:
         end_date = st.date_input(
             "To Date",
-            max_date,
+            value=default_end_date,
             min_value=min_date,
             max_value=max_date
         )
