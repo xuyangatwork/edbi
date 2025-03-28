@@ -5,7 +5,6 @@ from modules.analysis import getData, get_global_filter
 from modules.usage import show_mapview, show_detailedAnalysis, show_chatbot
 from modules.survey_dashboard import show_feedbackAnalysis
 
-
 #page = st.sidebar.radio("Navigation", ["Map View", "Analysis", "Chatbot", "Feedback"])
 
 def main():
