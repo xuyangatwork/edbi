@@ -3,7 +3,7 @@ import streamlit as st
 import streamlit_antd_components as sac
 from modules.analysis import getData, get_global_filter
 from modules.usage import show_mapview, show_detailedAnalysis, show_chatbot
-from modules.feedback import show_feedbackAnalysis
+from modules.survey_dashboard import show_feedbackAnalysis
 
 
 #page = st.sidebar.radio("Navigation", ["Map View", "Analysis", "Chatbot", "Feedback"])
@@ -38,7 +38,7 @@ def main():
             sac.MenuItem('Map View'),
             sac.MenuItem('Analysis'),
             sac.MenuItem('Chatbot'),
-            sac.MenuItem('Feedback'),
+            sac.MenuItem('Survey'),
             #sac.MenuItem('SnowFlake Connection Test')
             ], index=0, format_func='title', open_all=True)
 
@@ -77,8 +77,8 @@ def main():
         show_chatbot()
 
     # Feedback Dashboard
-    elif page == "Feedback":
-        st.title("Feedback Dashboard")
+    elif page == "Survey":
+        st.title("Survey Dashboard")
         
         show_feedbackAnalysis()
 
