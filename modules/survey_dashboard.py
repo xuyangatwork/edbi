@@ -4,7 +4,9 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from datetime import datetime, time
 import snowflake.connector
-import math
+import re
+from collections import Counter
+import altair as alt
 
 zone_data = {"East": "1", "West": "2", "North": "3", "South": "4"}
 
@@ -222,17 +224,89 @@ def render_chart_2(data):
     st.pyplot(fig)
 
 def render_chart_3(data):
-    # 3. Word Frequency Bar Chart: Top Feedback Keywords
     st.header("💬 Feedback from using EduPlan AI Product")
-    if 'feedback' in data.columns:
-        feedback_text = " ".join(data["feedback"].dropna().astype(str).tolist()).lower()
-        wordcloud = WordCloud(width=800, height=400, background_color='white').generate(feedback_text)
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.imshow(wordcloud, interpolation='bilinear')
-        ax.axis('off')
-        st.pyplot(fig)
-    else:
-        st.error("Feedback column is missing in the data.")
+
+    # Preprocessing function with caching
+    @st.cache_data
+    def preprocess_data(data):
+        stop_words = set(stopwords.words('english'))
+        feedback_text = ' '.join(data['ANSWER'].dropna())
+
+        # Remove special characters using regular expressions
+        cleaned_text = re.sub(r'[^a-zA-Z0-9\s]', '', feedback_text)
+
+        # Convert to lowercase
+        cleaned_text = cleaned_text.lower()
+
+        # Split into words
+        words = cleaned_text.split()
+
+        # Filter out stop words
+        filtered_words = [w for w in words if w not in stop_words]
+
+        # Count word frequencies
+        word_counts = Counter(filtered_words)
+
+        # Get the top 20 most common words
+        top_words = word_counts.most_common(20)
+
+        return pd.DataFrame(top_words, columns=["Word", "Frequency"])
+
+    # Preprocess data
+    df_words = preprocess_data(data)
+
+    # Store df_words in session state
+    st.session_state.df_words = df_words
+    # Render and display chart
+    chart = alt.Chart(df_words).mark_bar(color="blue").encode(
+        x=alt.X("Word:N", sort='-y'),
+        y=alt.Y("Frequency:Q"),
+        tooltip=["Word", "Frequency"]
+    ).properties(
+        width=800,
+        height=400,
+        title="Top 20 Words in Feedback"
+    )
+    st.altair_chart(chart, use_container_width=True)
+
+def render_chart_4(data):
+    st.header("🔍 Feedback Excerpts for Top 5 Words")
+
+    # Retrieve df_words from session state
+    if 'df_words' not in st.session_state:
+        st.error("Word frequency data not found. Please run render_chart_3 first.")
+        return
+
+    df_words = st.session_state.df_words
+
+    # Ensure df_words is sorted by frequency in descending order
+    df_words = df_words.sort_values(by='Frequency', ascending=False)
+
+    # Select the top 5 words
+    top_words = df_words.head(5)['Word'].tolist()
+
+    # Iterate over each top word to display its feedback excerpts
+    for word in top_words:
+        st.subheader(f"Feedback containing the word: '{word}'")
+
+        # Filter feedback containing the selected word
+        filtered_data = data[data['ANSWER'].str.contains(rf'\b{re.escape(word)}\b', case=False, na=False)]
+
+        # Limit to 10 results
+        limited_data = filtered_data.head(10)
+
+        # Display the feedback excerpts with the word highlighted in bold
+        for _, row in limited_data.iterrows():
+            # Use regex to replace the word with a bold version
+            highlighted_text = re.sub(
+                rf'(\b{re.escape(word)}\b)',
+                r'**\1**',
+                row['ANSWER'],
+                flags=re.IGNORECASE
+            )
+            st.markdown(f"- {highlighted_text}")
+
+        st.write("---")  # Separator between different words' feedback
 
 def show_feedbackAnalysis():
     # Filters
@@ -248,6 +322,7 @@ def show_feedbackAnalysis():
                 render_chart_1(df_search_plot_1)
                 render_chart_2(df_search_plot_2)
                 render_chart_3(df_search_plot_3)
+                render_chart_4(df_search_plot_3)
             else:
                 st.error("No data found, please re-select the filter.")
 
