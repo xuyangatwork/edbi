@@ -7,7 +7,7 @@ from geopy.geocoders import Nominatim
 from geopy.geocoders import OpenCage
 import openai
 from datetime import datetime
-from modules.analysis import getData_Search, getData_Map, getData_Bot
+from modules.analysis import getData_Search, getData_Map, getData_Bot, get_global_filter
 
 
 zone_data = {"East": "1", "West": "2", "North": "3", "South": "4"}
@@ -27,6 +27,8 @@ def geo_test(schoolName):
 
 def show_mapview():
     
+    get_global_filter()
+
     zone_name = st.selectbox("Zone", list(zone_data.keys()))
 
     start_date, end_date = create_date_filter()
@@ -83,6 +85,9 @@ def show_mapview():
     st.caption("Map data © OpenStreetMap contributors")
 
 def show_detailedAnalysis():
+    
+        get_global_filter()
+
     # Filters
         col1, col2, col3 = st.columns(3)
         with col1:
