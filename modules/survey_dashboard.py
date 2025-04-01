@@ -7,6 +7,7 @@ import snowflake.connector
 import re
 from collections import Counter
 import altair as alt
+from nltk.corpus import stopwords
 
 zone_data = {"East": "1", "West": "2", "North": "3", "South": "4"}
 
@@ -28,11 +29,24 @@ conn = create_connection()
 def create_date_filter():
     col1, col2 = st.columns(2)
 
+    query = """
+        SELECT
+        MIN(SURVEYDATETIME) AS MinSurveyDateTime,
+        MAX(SURVEYDATETIME) AS MaxSurveyDateTime
+    FROM
+        GOLD.SURVEY_ANALYSIS;
+    """
+
+    df_search = pd.read_sql(query, conn)
+
+    print(df_search['MINSURVEYDATETIME'][0])
+    print('MAXSURVEYDATETIME' , df_search['MAXSURVEYDATETIME'][0])
+
     # Define default dates as datetime.date objects
     default_min_date = datetime.strptime('2024-09-20', '%Y-%m-%d').date()
     default_max_date = datetime.strptime('2025-03-18', '%Y-%m-%d').date()
-    default_min_date_datetime_obj = datetime.combine(default_min_date, time.min)
-    default_max_date_datetime_obj = datetime.combine(default_max_date, time.max)
+    default_min_date_datetime_obj = datetime.combine(df_search['MINSURVEYDATETIME'][0], time.min)
+    default_max_date_datetime_obj = datetime.combine(df_search['MAXSURVEYDATETIME'][0], time.max)
     
     # Initialize session state variables if they are not already set
     if 'min_date' not in st.session_state:
@@ -53,7 +67,7 @@ def create_date_filter():
             "To Date",
             value=default_max_date_datetime_obj,
             min_value=default_min_date_datetime_obj,
-            # max_value=default_max_date
+            max_value=default_max_date_datetime_obj
         )
     
     # Update session state with selected dates
@@ -61,10 +75,10 @@ def create_date_filter():
     st.session_state['max_date'] = end_date
 
     # # Convert to datetime for further processing if needed
-    # start_datetime = datetime.combine(start_date, datetime.min.time())
-    # end_datetime = datetime.combine(end_date, datetime.max.time())
+    start_datetime = datetime.combine(start_date, datetime.min.time())
+    end_datetime = datetime.combine(end_date, datetime.max.time())
 
-    return default_min_date, default_max_date
+    return start_datetime, end_datetime
 
 def render_chart_1(data):
     """
@@ -176,50 +190,57 @@ def preprocess_lesson_time_data(raw_data):
 def render_chart_2(data):
     st.header("⏱ Lesson Planning Time Saved with EduPlan AI")
 
-    # Step 1: Keep only valid "NN min" entries from Q4
+    # Step 1: Filter for relevant question (Q4)
     filtered_data = data[data["QUESTIONID"] == "Q4"].copy()
-    filtered_data["ANSWER"] = filtered_data["ANSWER"].str.strip().str.lower()
-    valid_rows = filtered_data["ANSWER"].str.match(r"^\d+\s*min$")
-    filtered_data = filtered_data[valid_rows].copy()
-    filtered_data["time_minutes"] = filtered_data["ANSWER"].str.extract(r"(\d+)").astype(float)
 
-    # Parse survey datetime
-    filtered_data["SURVEYDATETIME"] = pd.to_datetime(filtered_data["SURVEYDATETIME"])
+    # Step 2: Clean and preprocess the ANSWER column
+    filtered_data["ANSWER"] = (
+        filtered_data["ANSWER"]
+        .str.strip()
+        .str.lower()
+        .replace({"depends": "0 min", "unknown": "0 min"})
+    )
 
-    # Split into "before" and "after" using median per school
-    def tag_before_after(group):
-        median_time = group["SURVEYDATETIME"].median()
-        group["tag"] = group["SURVEYDATETIME"].apply(lambda x: "before" if x <= median_time else "after")
-        return group
+    # Step 3: Extract numeric values from the ANSWER column
+    filtered_data["time_saved_minutes"] = (
+        filtered_data["ANSWER"]
+        .str.extract(r"(\d+)")
+        .fillna(0)
+        .astype(float)
+    )
 
-    tagged_data = filtered_data.groupby("SCHOOLNAME").apply(tag_before_after).reset_index(drop=True)
+    # Step 4: Calculate average time saved per school
+    avg_time_saved = (
+        filtered_data.groupby("SCHOOLNAME")["time_saved_minutes"]
+        .mean()
+        .reset_index()
+        .rename(columns={"SCHOOLNAME": "school", "time_saved_minutes": "average_time_saved_minutes"})
+    )
 
-    # Calculate average before/after per school
-    avg_time = tagged_data.groupby(["SCHOOLNAME", "tag"])["time_minutes"].mean().reset_index()
-    pivot = avg_time.pivot(index="SCHOOLNAME", columns="tag", values="time_minutes").reset_index()
-    pivot = pivot.rename(columns={"before": "time_before", "after": "time_after", "SCHOOLNAME": "school"})
-    pivot = pivot.dropna(subset=["time_before", "time_after"])
+    # Step 5: Limit to first 15 schools alphabetically
+    avg_time_saved = avg_time_saved.sort_values("school").head(15)
 
-    # Calculate % saved
-    pivot["savings"] = ((pivot["time_before"] - pivot["time_after"]) / pivot["time_before"] * 100).round(2)
-
-    # Limit to first 15 schools alphabetically
-    pivot = pivot.sort_values("school").head(15)
-
-    # Plot
-    fig, ax = plt.subplots(figsize=(12, 6))  # Wider figure to reduce overlap
-    bars = ax.bar(pivot["school"], pivot["savings"])
+    # Step 6: Plot the results
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bars = ax.bar(avg_time_saved["school"], avg_time_saved["average_time_saved_minutes"], color='#1f77b4')  # Darker blue
 
     ax.set_xlabel("School")
-    ax.set_ylabel("Time Saved (%)")
+    ax.set_ylabel("Average Time Saved (minutes)")
     ax.set_title("Average Lesson Planning Time Saved with EduPlan AI (First 15 Schools A–Z)")
-    ax.set_ylim(0, pivot["savings"].max() * 1.25)  # Extra padding at top
-    ax.set_xticklabels(pivot["school"], rotation=45, ha='right')
+    ax.set_ylim(0, avg_time_saved["average_time_saved_minutes"].max() * 1.25)
+    ax.set_xticklabels(avg_time_saved["school"], rotation=45, ha='right')
 
-    # Annotate bars above, staggered to avoid overlap
-    for i, (bar, value) in enumerate(zip(bars, pivot["savings"])):
-        offset = 2 + (i % 2) * 3  # alternate offset to reduce clutter
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + offset, f"{value:.1f}%", ha='center', fontsize=9)
+    # Annotate bars with values
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            height,
+            f"{height:.1f} min",
+            ha='center',
+            va='bottom',
+            fontsize=9
+        )
 
     st.pyplot(fig)
 
@@ -350,6 +371,8 @@ def getData_Search(start_date, end_date, selected_zone=None, question_ids=None):
             sa.SURVEYDATETIME BETWEEN %s AND %s
     """
     params = [start_date, end_date]
+
+    print(params)
 
     # Apply zone filter if selected_zone is provided
     if selected_zone:
