@@ -26,7 +26,7 @@ def create_connection():
 # # Establish Snowflake connection
 conn = create_connection()
 
-def create_date_filter():
+def create_date_filter_survey():
     col1, col2 = st.columns(2)
 
     query = """
@@ -333,7 +333,7 @@ def show_feedbackAnalysis():
     # Filters
         zone_name = st.selectbox("Zone", list(zone_data.keys()))
 
-        start_date, end_date = create_date_filter()
+        start_date, end_date = create_date_filter_survey()
                 
         if st.button("Search"):
             df_search_plot_1 = getData_Search(start_date, end_date, zone_data[zone_name], ['Q1','Q7'])
