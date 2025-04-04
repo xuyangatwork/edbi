@@ -76,10 +76,36 @@ def show_mapview():
                 tooltip=popup_text
             ).add_to(m)
 
+            # Add a custom legend using HTML
+            legend_html = '''
+            <div style="
+                position: fixed; 
+                bottom: 50px; left: 50px; 
+                width: 180px; height: 100px; 
+                background-color: white; 
+                padding: 10px;
+                border-radius: 5px;
+                font-size: 14px;
+                box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+                z-index:9999;">
+                <b>Usage Legend</b><br>
+                <i class="fa fa-circle" style="color:#22c55e"></i> High Usage<br>
+                <i class="fa fa-circle" style="color:#f5b03b"></i> Medium Usage<br>
+                <i class="fa fa-circle" style="color:#f05454"></i> Low Usage
+            </div>
+            '''
+
+            m.get_root().html.add_child(folium.Element(legend_html))
+
     # Display the map in Streamlit
     folium_static(m, width=1000, height=400)
         
     st.caption("Map data © OpenStreetMap contributors")
+
+    st.caption("""
+* Adoption rate measures how many users start using the product after its launch, to evaluates initial acceptance and onboarding success.
+* Usage rate measures how frequently users engage with a product or feature over a specific period, to assess whether users actively use the tool after initial adoption.
+               """)
 
 def show_detailedAnalysis():
         get_global_filter()
@@ -199,7 +225,12 @@ def show_detailedAnalysis():
                 fig.update_traces(texttemplate='%{text}', textposition='outside')
                 
                 st.plotly_chart(fig, use_container_width=True)
-            
+
+
+                st.caption("""
+            * Adoption rate measures how many users start using the product after its launch, to evaluates initial acceptance and onboarding success.
+            * Usage rate measures how frequently users engage with a product or feature over a specific period, to assess whether users actively use the tool after initial adoption.
+                        """)
             else:
                 st.error("No data found, please re-select the filter.")
 
